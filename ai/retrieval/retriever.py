@@ -7,12 +7,14 @@ We use ChromaDB - a simple, free, local vector database. It stores:
   - metadata: modality, source_id, timestamp, topic (for filtering + evidence display)
 
 Flow:
-  1. index_segments()  -> run once to embed + store all preprocessed segments
-  2. retrieve()        -> run every time a user asks a question
+  1. index_segments()         -> embed + store all preprocessed sample segments
+  2. index_uploaded_chunks()  -> embed + store chunks from user-uploaded files
+  3. retrieve()               -> run every time a user asks a question
 """
 
 import sys
 import os
+import uuid
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -64,6 +66,36 @@ def index_segments(segments: list[Segment], clear_existing: bool = True) -> None
         ],
     )
     print(f"Indexed {len(segments)} segments into ChromaDB at '{CHROMA_PATH}'.")
+
+
+def index_uploaded_chunks(chunks: list[dict]) -> int:
+    """
+    Index user-uploaded chunks directly (no Segment object needed).
+    Each chunk: {"text", "source_id", "modality", "source_title"}
+    Returns number of chunks indexed.
+    """
+    if not chunks:
+        return 0
+
+    texts = [c["text"] for c in chunks]
+    embeddings = get_embeddings_batch(texts, task_type="RETRIEVAL_DOCUMENT")
+
+    _collection.add(
+        ids=[f"upload_{uuid.uuid4().hex[:12]}" for _ in chunks],
+        embeddings=embeddings,
+        documents=texts,
+        metadatas=[
+            {
+                "source_id": c["source_id"],
+                "modality": c["modality"],
+                "topic": c.get("topic", "uploaded"),
+                "timestamp": c.get("timestamp", ""),
+                "source_title": c["source_title"],
+            }
+            for c in chunks
+        ],
+    )
+    return len(chunks)
 
 
 def retrieve(query: str, top_k: int = 5, modality_filter: str | None = None) -> list[dict]:

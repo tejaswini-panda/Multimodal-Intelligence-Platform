@@ -6,3 +6,5 @@ uvicorn
 streamlit
 psycopg2-binary
 sqlalchemy
+python-multipart
+pypdf

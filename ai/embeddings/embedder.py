@@ -25,6 +25,37 @@ _client = genai.Client(api_key=API_KEY) if API_KEY else None
 EMBEDDING_MODEL = "gemini-embedding-001"
 
 
+def _embed_with_retry(contents, task_type: str, max_retries: int = 4):
+    """
+    Call Gemini embeddings with retries for temporary errors (429/5xx).
+    `contents` can be a single string or a list of strings.
+    """
+    if not _client:
+        raise RuntimeError(
+            "GEMINI_API_KEY not set. Copy .env.example to .env and add your key."
+        )
+
+    retry_keywords = (
+        "429", "500", "502", "503", "504",
+        "unavailable", "rate limit", "resource exhausted", "timeout",
+    )
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            return _client.models.embed_content(
+                model=EMBEDDING_MODEL,
+                contents=contents,
+                config={"task_type": task_type},
+            )
+        except Exception as exc:
+            retryable = any(k in str(exc).lower() for k in retry_keywords)
+            if not retryable or attempt == max_retries:
+                raise
+            wait = attempt * 3
+            print(f"Embedding error ({exc}). Retrying in {wait}s (attempt {attempt}/{max_retries})...")
+            time.sleep(wait)
+
+
 def get_embedding(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list[float]:
     """
     Convert a piece of text into an embedding vector using Gemini.
@@ -35,30 +66,32 @@ def get_embedding(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list[floa
     (Gemini optimizes the vector slightly differently depending on which side
     of the search you're on - this small detail improves retrieval quality.)
     """
-    if not _client:
-        raise RuntimeError(
-            "GEMINI_API_KEY not set. Copy .env.example to .env and add your key."
-        )
-
-    result = _client.models.embed_content(
-        model=EMBEDDING_MODEL,
-        contents=text,
-        config={"task_type": task_type},
-    )
+    result = _embed_with_retry(text, task_type)
     return result.embeddings[0].values
 
 
-def get_embeddings_batch(texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT") -> list[list[float]]:
+def get_embeddings_batch(
+    texts: list[str],
+    task_type: str = "RETRIEVAL_DOCUMENT",
+    batch_size: int = 50,
+) -> list[list[float]]:
     """
-    Embed multiple texts one by one with a tiny delay to respect free-tier rate limits.
-    For a real production system you'd batch these in a single API call, but for our
-    small dataset (a few dozen segments), simple sequential calls are fine and easier
-    to debug.
+    Embed many texts in batches (one API call per `batch_size` texts),
+    with retries for temporary errors.
     """
     embeddings = []
-    for text in texts:
-        embeddings.append(get_embedding(text, task_type))
-        time.sleep(0.2)  # gentle pacing to avoid free-tier rate limit errors
+
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i + batch_size]
+        result = _embed_with_retry(batch, task_type)
+        embeddings.extend(e.values for e in result.embeddings)
+        time.sleep(0.5)  # gentle pacing between batches
+
+    if len(embeddings) != len(texts):
+        raise RuntimeError(
+            f"Embedding count mismatch: expected {len(texts)}, got {len(embeddings)}"
+        )
+
     return embeddings
 
 

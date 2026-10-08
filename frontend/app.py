@@ -139,8 +139,70 @@ st.markdown("""
 if "last_result" not in st.session_state:
     st.session_state.last_result = None
 
-tab1, tab2, tab3 = st.tabs(["🔍  Query Workspace", "✅  Review Workspace", "📊  Dashboard"])
+tab_upload, tab1, tab2, tab3 = st.tabs(
+    ["📤  Upload Data", "🔍  Query Workspace", "✅  Review Workspace", "📊  Dashboard"]
+)
 
+# ---------------------------------------------------------------
+# TAB 0: UPLOAD DATA (NEW)
+# ---------------------------------------------------------------
+with tab_upload:
+    st.subheader("Upload learning content")
+    st.caption("Supported files: .txt, .pdf, .csv, .json")
+
+    modality_options = {
+        "🎥 Video transcript": "video",
+        "📊 Slides": "slide",
+        "📝 Quiz": "quiz",
+        "💬 Discussion": "discussion",
+    }
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        modality_label = st.selectbox("Content type", list(modality_options.keys()))
+    with col_b:
+        source_title = st.text_input("Source title (optional)", placeholder="e.g. ML Week 3 Lecture")
+
+    files = st.file_uploader(
+        "Upload files",
+        type=["txt", "pdf", "csv", "json"],
+        accept_multiple_files=True,
+    )
+
+    if st.button("📥 Ingest files", type="primary"):
+        if not files:
+            st.warning("Please choose at least one file.")
+        else:
+            with st.spinner("Chunking and embedding... (calls Gemini, may take a while)"):
+                for f in files:
+                    try:
+                        r = requests.post(
+                            f"{API_BASE}/api/ingest",
+                            files={"file": (f.name, f.getvalue())},
+                            data={
+                                "modality": modality_options[modality_label],
+                                "source_title": source_title or f.name,
+                            },
+                            timeout=180,
+                        )
+                        r.raise_for_status()
+                        d = r.json()
+                        st.success(
+                            f"{f.name}: {d['chunks_indexed']} chunks indexed "
+                            f"(total in DB: {d['collection_total']})"
+                        )
+                    except requests.exceptions.HTTPError:
+                        try:
+                            detail = r.json().get("detail", r.text)
+                        except Exception:
+                            detail = r.text
+                        st.error(f"{f.name}: {detail}")
+                    except Exception as e:
+                        st.error(f"{f.name}: {e}")
+
+# ---------------------------------------------------------------
+# TAB 1: QUERY WORKSPACE
+# ---------------------------------------------------------------
 with tab1:
     st.subheader("Ask a question about learner friction")
 
@@ -183,7 +245,9 @@ with tab1:
 
         st.divider()
 
-        if insight.get("error"):
+        if insight.get("error") == "insufficient_evidence":
+            st.warning(insight.get("confidence_reason", "No relevant evidence found."))
+        elif insight.get("error"):
             st.error(f"Could not generate a grounded insight: {insight.get('confidence_reason', insight['error'])}")
         else:
             confidence = insight.get("confidence", "unknown")
@@ -219,6 +283,9 @@ with tab1:
                     st.write(e["text"])
                     st.caption(f"Segment ID: {e['segment_id']} | Relevance distance: {e['distance']:.3f}")
 
+# ---------------------------------------------------------------
+# TAB 2: REVIEW WORKSPACE
+# ---------------------------------------------------------------
 with tab2:
     st.subheader("Review the most recent insight")
 
@@ -260,6 +327,9 @@ with tab2:
             except Exception as e:
                 st.error(f"Could not record decision: {e}")
 
+# ---------------------------------------------------------------
+# TAB 3: DASHBOARD
+# ---------------------------------------------------------------
 with tab3:
     st.subheader("Usage Metrics")
 
