@@ -150,7 +150,7 @@ with tab_upload:
     st.subheader("Upload learning content")
     st.caption("Supported files: .txt, .pdf, .csv, .json")
 
-    AUTO_LABEL = "🤖 Auto-detect from file type"
+    AUTO_LABEL = "🤖 Detect from uploaded file"
     modality_options = {
         AUTO_LABEL: None,
         "🎥 Video transcript": "video",
