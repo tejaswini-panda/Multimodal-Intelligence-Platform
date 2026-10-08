@@ -2,7 +2,7 @@
 
 **Cross-modal RAG for learner friction detection.** Upload video transcripts, slides, quizzes and learner discussions, ask a question in plain English, and get a grounded insight with traceable evidence.
 
-**Live demo:** `<add-your-streamlit-app-url-here>`
+**Live demo:** `https://coursera-multimodal-mini-pw8grrooksyszb9wj9hmq9.streamlit.app/`
 
 ---
 
