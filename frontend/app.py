@@ -150,12 +150,17 @@ with tab_upload:
     st.subheader("Upload learning content")
     st.caption("Supported files: .txt, .pdf, .csv, .json")
 
+    AUTO_LABEL = "🤖 Auto-detect from file type"
     modality_options = {
+        AUTO_LABEL: None,
         "🎥 Video transcript": "video",
         "📊 Slides": "slide",
         "📝 Quiz": "quiz",
         "💬 Discussion": "discussion",
     }
+    # Used when Auto-detect is selected
+    auto_by_ext = {"txt": "video", "pdf": "slide", "csv": "quiz", "json": "discussion"}
+    st.caption("Auto-detect: .txt → Video transcript, .pdf → Slides, .csv → Quiz, .json → Discussion")
 
     col_a, col_b = st.columns(2)
     with col_a:
@@ -175,12 +180,16 @@ with tab_upload:
         else:
             with st.spinner("Chunking and embedding... (calls Gemini, may take a while)"):
                 for f in files:
+                    chosen_modality = modality_options[modality_label]
+                    if chosen_modality is None:
+                        ext = f.name.rsplit(".", 1)[-1].lower()
+                        chosen_modality = auto_by_ext.get(ext, "video")
                     try:
                         r = requests.post(
                             f"{API_BASE}/api/ingest",
                             files={"file": (f.name, f.getvalue())},
                             data={
-                                "modality": modality_options[modality_label],
+                                "modality": chosen_modality,
                                 "source_title": source_title or f.name,
                             },
                             timeout=180,
@@ -188,7 +197,7 @@ with tab_upload:
                         r.raise_for_status()
                         d = r.json()
                         st.success(
-                            f"{f.name}: {d['chunks_indexed']} chunks indexed "
+                            f"{f.name} [{chosen_modality}]: {d['chunks_indexed']} chunks indexed "
                             f"(total in DB: {d['collection_total']})"
                         )
                     except requests.exceptions.HTTPError:
